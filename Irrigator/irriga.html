@@ -1,0 +1,100 @@
+<! – Ver. 1.0 –>
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Irrigatore MQTT - WebSocket</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    body { font-family: Arial; text-align: center; background: #f0f0f0; padding: 20px; }
+    h1 { color: #333; }
+    .btn {
+      padding: 15px 30px;
+      font-size: 18px;
+      margin: 10px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .on { background-color: #4CAF50; color: white; }
+    .off { background-color: #ccc; color: #333; }
+    .info { font-size: 20px; margin: 20px; }
+  </style>
+</head>
+<body>
+
+<h1>Controllo Irrigatore - MQTT WebSocket</h1>
+
+<div class="info">
+  <p><strong>Modalità:</strong> <span id="modalita">...</span></p>
+  <p><strong>Humidity Level:</strong> <span id="hum">...</span></p>
+  <p><strong>% Humidity:</strong> <span id="mapHum">...</span>%</p>
+  <p><strong>Temperatura:</strong> <span id="temp">...</span> °C</p>
+</div>
+
+<div>
+  <h2>Modalità</h2>
+  <button class="btn" id="btnManuale" onclick="sendCommand('modalita', 'manuale')">Manuale</button>
+  <button class="btn" id="btnAuto" onclick="sendCommand('modalita', 'auto')">Automatica</button>
+
+  <h2>Pompa</h2>
+  <button class="btn" id="btnPompaOn" onclick="sendCommand('pompa', 'on')">ON</button>
+  <button class="btn" id="btnPompaOff" onclick="sendCommand('pompa', 'off')">OFF</button>
+</div>
+
+<script>
+const options = {
+  connectTimeout: 4000,
+  clientId: 'webui_' + Math.random().toString(16).substr(2, 8),
+  keepalive: 60,
+  reconnectPeriod: 1000
+};
+
+const client = mqtt.connect('ws://szweb.eu:9001', options); // modifica se necessario
+
+client.on('connect', () => {
+  console.log('Connected to MQTT broker');
+
+  client.subscribe('irrigatore/#');
+  client.publish('irrigatore/get/stato', 'richiesta'); // Richiede lo stato all'avvio
+});
+
+client.on('message', (topic, message) => {
+  const payload = message.toString();
+
+  if (topic === 'irrigatore/comando/modalita') {
+    document.getElementById('modalita').textContent = payload;
+    updateButtonState('btnManuale', payload === 'manuale');
+    updateButtonState('btnAuto', payload === 'auto');
+  }
+
+  if (topic === 'irrigatore/stato/pompa') {
+    updateButtonState('btnPompaOn', payload === 'on');
+    updateButtonState('btnPompaOff', payload === 'off');
+  }
+
+  if (topic === 'irrigatore/stato/raw_humidity') {
+    document.getElementById('hum').textContent = payload;
+  }
+
+  if (topic === 'irrigatore/stato/map_humidity') {
+    document.getElementById('mapHum').textContent = payload;
+  }
+
+  if (topic === 'irrigatore/stato/temperatura') {
+    document.getElementById('temp').textContent = payload;
+  }
+});
+
+function sendCommand(type, value) {
+  client.publish(`irrigatore/comando/${type}`, value);
+}
+
+function updateButtonState(buttonId, isActive) {
+  const btn = document.getElementById(buttonId);
+  btn.className = isActive ? 'btn on' : 'btn off';
+}
+</script>
+
+</body>
+</html>
