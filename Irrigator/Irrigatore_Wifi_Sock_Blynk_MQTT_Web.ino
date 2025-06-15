@@ -13,26 +13,29 @@
 
 #include <WiFi.h>
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include <PubSubClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+//#include <Adafruit_GFX.h>
+//#include <Adafruit_SSD1306.h>
+
 
 // OLED
+/*
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 64
 #define OLED_RESET -1
 #define SDA_PIN 27
 #define SCL_PIN 25
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, OLED_RESET);
+*/
 
 // Pin sensori
 const int pinPompa = 26;
-const int pinWaterLev = 33;
 const int pinHumidity = 34;
 
 // DS18B20
+
 #define ONE_WIRE_BUS 32
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -44,6 +47,10 @@ bool modalitaAutomatica = false;
 unsigned long tempoAvvioPompa = 0;
 const int durataPompa = 5000;
 const int MinHumidity = 70;
+
+unsigned long ultimoAvvioPompa = 0;
+const unsigned long intervalloMinimo = 10000; // 10 secondi
+
 int HumidityLev;
 int mapHumidityLev;
 
@@ -69,6 +76,7 @@ PubSubClient client(espClient);
 void setup_wifi() {
   delay(10);
   Serial.println("Connessione WiFi...");
+  pinMode(2, INPUT_PULLUP);                                            
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -140,7 +148,7 @@ void inviaDati() {
   HumidityLev = analogRead(pinHumidity);
   mapHumidityLev = map(HumidityLev, 3500, 1300, 0, 100);
   mapHumidityLev = constrain(mapHumidityLev, 0, 100);
-
+  //mapHumidityLev = constrain(map(HumidityLev, 1300, 3500, 0, 100), 0, 100);
   Blynk.virtualWrite(V1, mapHumidityLev);
   Blynk.virtualWrite(V2, HumidityLev);
 
@@ -160,7 +168,7 @@ void inviaDati() {
   dtostrf(temperaturaC, 6, 2, bufTemp);
   client.publish("irrigatore/stato/temperatura", bufTemp);
 
-  printOLED();
+  //printOLED();
 }
 
 void inviaStatoCorrente() {
@@ -176,22 +184,6 @@ void inviaStatoCorrente() {
   char bufTemp[8];
   dtostrf(temperaturaC, 6, 2, bufTemp);
   client.publish("irrigatore/stato/temperatura", bufTemp);
-}
-
-void printOLED() {
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.setTextSize(2);
-  display.print("% Hum = "); display.print(mapHumidityLev);display.println("%");
-  display.setTextSize(1);
-  display.println();
-  display.setTextSize(2);
-  display.print("Hum= "); display.println(HumidityLev);
-  display.setTextSize(1);
-  display.println();
-  display.setTextSize(2);
-  display.print("T= "); display.println(temperaturaC, 1);
-  display.display();
 }
 
 BLYNK_WRITE(V0) {
@@ -211,13 +203,44 @@ BLYNK_WRITE(V3) {
   }
 }
 
+/*
+void printOLED() {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(2);
+  display.print("%Hum= "); display.print(mapHumidityLev);display.println("%");
+  display.setTextSize(1);
+  display.println();
+  display.setTextSize(2);
+  display.print("Hum= "); display.println(HumidityLev);
+  display.setTextSize(1);
+  display.println();
+  display.setTextSize(2);
+  display.print("T= "); display.println(temperaturaC, 1);
+  display.display();
+}*/
+
 /**********************************************************************************/
 void setup() {
-  Serial.begin(115200);
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Serial.begin(115200);  
   pinMode(pinPompa, OUTPUT);
   digitalWrite(pinPompa, LOW);
 
+
+  setup_wifi();
+  
+  sensors.begin();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(mqttCallback);
+  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, password);
+
+  modalitaAutomatica = false;
+  Blynk.virtualWrite(V0, 0);
+  Blynk.virtualWrite(V3, 0);
+  timer.setInterval(6000L, inviaDati);
+ 
+ /*
+  Wire.begin(SDA_PIN, SCL_PIN);
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("Errore: Display SSD1306 non trovato!"));
     while (true);
@@ -230,17 +253,8 @@ void setup() {
   display.println("Avvio...");
   display.display();
   delay(1000);
+*/
 
-  setup_wifi();
-  sensors.begin();
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(mqttCallback);
-  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, password);
-
-  modalitaAutomatica = false;
-  Blynk.virtualWrite(V0, 0);
-  Blynk.virtualWrite(V3, 0);
-  timer.setInterval(6000L, inviaDati);
 }
 
 void loop() {
@@ -249,7 +263,22 @@ void loop() {
   Blynk.run();
   timer.run();
 
+  // Pompa
+  if (modalitaAutomatica) {
+    if (!pompaAttiva && mapHumidityLev < MinHumidity && millis() - ultimoAvvioPompa > intervalloMinimo) {
+      Serial.println("Attivo Pompa 1");
+      attivaPompa();
+      ultimoAvvioPompa = millis();
+    }
+    if (pompaAttiva && millis() - tempoAvvioPompa >= durataPompa  || mapHumidityLev > MinHumidity) {
+      Serial.println("Spengo Pompa");
+      disattivaPompa();
+    }
+  }
+
+/*
   if (modalitaAutomatica && pompaAttiva && millis() - tempoAvvioPompa >= durataPompa && mapHumidityLev > MinHumidity) disattivaPompa();
 
   if (modalitaAutomatica && !pompaAttiva && mapHumidityLev < MinHumidity) attivaPompa();
+*/
 }
