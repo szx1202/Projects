@@ -1,0 +1,97 @@
+esphome:
+  name: irrigator1psod
+  friendly_name: Irrigator1psod
+
+esp32:
+  board: esp32dev
+
+# API e OTA rimangono invariati
+api:
+  encryption:
+    key: "eGmkiHfVBi3QJHwYh1ilu1Im0lLdwrGlmYjKOLBLWKw="
+ota:
+  platform: esphome
+
+wifi:
+  ssid: "Dart-24G"
+  password: "SoloPerLaFamiglia"
+
+logger:
+
+# --- MODIFICA CHIAVE #1: IMPOSTIAMO IL TOPIC PREFIX ---
+mqtt:
+  broker: 192.168.1.103
+  topic_prefix: irrigator1psod # <-- IMPOSTATO QUI!
+  birth_message:
+    topic: irrigator1psod/status # Questo va lasciato completo
+    payload: "online"
+  will_message:
+    topic: irrigator1psod/status # Questo va lasciato completo
+    payload: "offline"
+  
+  # Il trigger on_message ora non ha bisogno del prefisso
+  on_message:
+    - topic: data/request/command # <-- Semplificato
+      then:
+        - logger.log: "Comando MQTT di aggiornamento dati ricevuto."
+        - button.press: force_update_button
+
+sensor:
+  # 1. Sensore DHT22
+  - platform: dht
+    id: dht_sensor
+    pin: GPIO27
+    model: DHT22
+    temperature:
+      name: "Temperatura Aria"
+      # state_topic rimosso, verrà generato automaticamente
+    humidity:
+      name: "Umidità Aria"
+      # state_topic rimosso
+    update_interval: 60s
+
+  # 2. Sensore capacitivo su GPIO 32 (Raw in Volt)
+  - platform: adc
+    pin: GPIO32
+    name: "Umidità Terreno Raw"
+    id: umidita_terreno_raw
+    # state_topic rimosso
+    # ... resto invariato ...
+    unit_of_measurement: "V"
+    attenuation: 11db
+    update_interval: 60s
+
+  # 3. Sensore capacitivo (valore calibrato in percentuale)
+  - platform: copy
+    source_id: umidita_terreno_raw
+    name: "Umidità Terreno"
+    # state_topic rimosso
+    # ... resto invariato ...
+    unit_of_measurement: "%"
+    filters:
+      - calibrate_linear:
+          - 2.74 -> 0.0
+          - 1.01 -> 100.0
+      - clamp:
+          min_value: 0
+          max_value: 100
+
+# --- MODIFICA CHIAVE #2: SEMPLIFICHIAMO I TOPIC DELLO SWITCH ---
+switch:
+  - platform: gpio
+    pin: GPIO26
+    name: "Pompa"
+    inverted: False
+    # I topic verranno generati automaticamente come:
+    # irrigator1psod/switch/pompa/state
+    # irrigator1psod/switch/pompa/command
+
+button:
+  - platform: template
+    name: "Aggiorna Dati Sensori"
+    id: force_update_button
+    on_press:
+      then:
+        - logger.log: "Aggiornamento forzato dei sensori in corso..."
+        - component.update: dht_sensor
+        - component.update: umidita_terreno_raw
