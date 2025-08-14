@@ -1,0 +1,270 @@
+esphome:
+  name: irrigatore-2p
+  friendly_name: Irrigatore 2 Pompe
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: "Dart-24G"
+  password: "SoloPerLaFamiglia"
+  #manual_ip:
+    #static_ip: 192.168.1.202
+    #gateway: 192.168.1.1
+    #subnet: 255.255.255.0
+    #dns1: 8.8.8.8
+    #dns2: 1.1.1.1
+  power_save_mode: none
+
+api:
+  encryption:
+    key: "eGmkiHfVBi3QJHwYh1ilu1Im0lLdwrGlmYjKOLBLWKw="
+
+ota:
+  platform: esphome
+
+logger:
+  level: DEBUG
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Rome"
+    servers:
+      - 193.204.114.232
+      - 193.204.114.233
+
+globals:
+  - id: pump1_start_time
+    type: unsigned long
+    initial_value: '0'
+  - id: pump2_start_time
+    type: unsigned long
+    initial_value: '0'
+
+mqtt:
+  id: mqtt_client
+  broker: 192.168.1.103
+  port: 1883
+  client_id: irrigatore-2p-esphome
+  birth_message:
+    topic: "irrig-2p/status"
+    payload: "online"
+    retain: true
+  will_message:
+    topic: "irrig-2p/status"
+    payload: "offline"
+    retain: true
+  on_message:
+    - topic: "irrig-2p/switch/pompa_1/command"
+      then:
+        - lambda: |-
+            if (x == "ON") {
+              id(pompa_1).turn_on();
+            } else if (x == "OFF") {
+              id(pompa_1).turn_off();
+            }
+    - topic: "irrig-2p/switch/pompa_2/command"
+      then:
+        - lambda: |-
+            if (x == "ON") {
+              id(pompa_2).turn_on();
+            } else if (x == "OFF") {
+              id(pompa_2).turn_off();
+            }
+    - topic: "irrig-1p/button/updsensordata/command"
+      then:
+        - logger.log: "Comando di refresh manuale ricevuto via MQTT"
+        - component.update: dht_sensor
+        - component.update: soil_1_voltage
+        - component.update: soil_2_voltage
+
+sensor:
+  - platform: dht
+    id: dht_sensor
+    pin: GPIO27
+    model: DHT22
+    update_interval: 10s
+    temperature:
+      name: "Temperatura Aria"
+      on_value:
+        - mqtt.publish:
+            topic: "irrig-2p/sensor/temperatura_aria/state"
+            payload: !lambda 'return " " + to_string(x);'
+            retain: true
+    humidity:
+      name: "Umidità Aria"
+      on_value:
+        - mqtt.publish:
+            topic: "irrig-2p/sensor/umidita_aria/state"
+            payload: !lambda 'return " " + to_string(x);'
+            retain: true
+  - platform: adc
+    pin: GPIO34
+    name: "Umidità Terreno 1 (Voltaggio)"
+    id: soil_1_voltage
+    update_interval: 10s
+    attenuation: 12db
+    on_value:
+      - mqtt.publish:
+          topic: "irrig-2p/sensor/umidita_terreno_1_raw/state"
+          payload: !lambda 'return " " + to_string(x);'
+          retain: true
+  - platform: template
+    name: "Umidità Terreno 1 (Percentuale)"
+    lambda: 'return id(soil_1_voltage).state;'
+    unit_of_measurement: "%"
+    update_interval: 10s
+    filters:
+      - calibrate_linear:
+          - 3.0 -> 0.0
+          - 1.25 -> 100.0
+      - clamp:
+          min_value: 0.0
+          max_value: 100.0
+    on_value:
+      - mqtt.publish:
+          topic: "irrig-2p/sensor/umidita_terreno_1/state"
+          payload: !lambda 'return " " + to_string(x);'
+          retain: true
+  - platform: adc
+    pin: GPIO35
+    name: "Umidità Terreno 2 (Voltaggio)"
+    id: soil_2_voltage
+    update_interval: 10s
+    attenuation: 12db
+    on_value:
+      - mqtt.publish:
+          topic: "irrig-2p/sensor/umidita_terreno_2_raw/state"
+          payload: !lambda 'return " " + to_string(x);'
+          retain: true
+  - platform: template
+    name: "Umidità Terreno 2 (Percentuale)"
+    lambda: 'return id(soil_2_voltage).state;'
+    unit_of_measurement: "%"
+    update_interval: 10s
+    filters:
+      - calibrate_linear:
+          - 3.0 -> 0.0
+          - 1.25 -> 100.0
+      - clamp:
+          min_value: 0.0
+          max_value: 100.0
+    on_value:
+      - mqtt.publish:
+          topic: "irrig-2p/sensor/umidita_terreno_2/state"
+          payload: !lambda 'return " " + to_string(x);'
+          retain: true
+
+text_sensor:
+  - platform: template
+    name: "Ultimo Aggiornamento"
+    id: last_refresh
+    on_value:
+      - mqtt.publish:
+          topic: "irrig-2p/sensor/last_refresh/state"
+          payload: !lambda 'return x;'
+          retain: true
+
+switch:
+  - platform: gpio
+    name: "Pompa 1"
+    id: pompa_1
+    pin:
+      number: GPIO25
+      inverted: false
+    on_turn_on:
+      - mqtt.publish:
+          topic: "irrig-2p/switch/pompa_1/state"
+          payload: "ON"
+          retain: true
+      - lambda: |-
+          if (id(sntp_time).now().is_valid()) {
+            id(pump1_start_time) = id(sntp_time).now().timestamp;
+            char timestamp_str[12];
+            sprintf(timestamp_str, "%lu", id(pump1_start_time));
+            id(mqtt_client).publish("irrig-2p/switch/pompa_1/last_activation/state", std::string(timestamp_str), 0, true);
+          } else {
+            ESP_LOGW("pompa1", "Impossibile registrare l'ora, NTP non sincronizzato.");
+          }
+    on_turn_off:
+      - mqtt.publish:
+          topic: "irrig-2p/switch/pompa_1/state"
+          payload: "OFF"
+          retain: true
+      - lambda: |-
+          if (id(pump1_start_time) > 0 && id(sntp_time).now().is_valid()) {
+            unsigned long duration = id(sntp_time).now().timestamp - id(pump1_start_time);
+            long minutes = duration / 60;
+            long remainingSeconds = duration % 60;
+            char duration_str[20];
+            sprintf(duration_str, "%ld min %ld sec", minutes, remainingSeconds);
+            id(mqtt_client).publish("irrig-2p/switch/pompa_1/last_duration/state", std::string(duration_str), 0, true);
+            id(pump1_start_time) = 0;
+          }
+  - platform: gpio
+    name: "Pompa 2"
+    id: pompa_2
+    pin:
+      number: GPIO26
+      inverted: false
+    on_turn_on:
+      - mqtt.publish:
+          topic: "irrig-2p/switch/pompa_2/state"
+          payload: "ON"
+          retain: true
+      - lambda: |-
+          if (id(sntp_time).now().is_valid()) {
+            id(pump2_start_time) = id(sntp_time).now().timestamp;
+            char timestamp_str[12];
+            sprintf(timestamp_str, "%lu", id(pump2_start_time));
+            id(mqtt_client).publish("irrig-2p/switch/pompa_2/last_activation/state", std::string(timestamp_str), 0, true);
+          } else {
+            ESP_LOGW("pompa2", "Impossibile registrare l'ora, NTP non sincronizzato.");
+          }
+    on_turn_off:
+      - mqtt.publish:
+          topic: "irrig-2p/switch/pompa_2/state"
+          payload: "OFF"
+          retain: true
+      - lambda: |-
+          if (id(pump2_start_time) > 0 && id(sntp_time).now().is_valid()) {
+            unsigned long duration = id(sntp_time).now().timestamp - id(pump2_start_time);
+            long minutes = duration / 60;
+            long remainingSeconds = duration % 60;
+            char duration_str[20];
+            sprintf(duration_str, "%ld min %ld sec", minutes, remainingSeconds);
+            id(mqtt_client).publish("irrig-2p/switch/pompa_2/last_duration/state", std::string(duration_str), 0, true);
+            id(pump2_start_time) = 0;
+          }
+
+button:
+  - platform: template
+    name: "Pubblica Tutti i Dati"
+    id: publish_all_data_button
+    icon: "mdi:publish"
+    on_press:
+      - logger.log: "Pulsante 'Pubblica Tutti i Dati' premuto. Invio di tutti gli stati via MQTT."
+      - component.update: dht_sensor
+      - component.update: soil_1_voltage
+      - component.update: soil_2_voltage
+      - lambda: |-
+          id(mqtt_client).publish("irrig-2p/switch/pompa_1/state", std::string(id(pompa_1).state ? "ON" : "OFF"), 0, true);
+      - lambda: |-
+          id(mqtt_client).publish("irrig-2p/switch/pompa_2/state", std::string(id(pompa_2).state ? "ON" : "OFF"), 0, true);
+      - text_sensor.template.publish:
+          id: last_refresh
+          state: !lambda 'return id(sntp_time).now().strftime("%H:%M:%S");'
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(sntp_time).now().is_valid();'
+          then:
+            - text_sensor.template.publish:
+                id: last_refresh
+                state: !lambda 'return id(sntp_time).now().strftime("%H:%M:%S");'
