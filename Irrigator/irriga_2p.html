@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Irrigatore</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js" type="text/javascript"></script>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+        }
+        .card h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .data-point {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            font-size: 1.1em;
+        }
+        .data-point span:first-child {
+            font-weight: 500;
+            color: var(--secondary-color);
+        }
+        .data-point span:last-child {
+            font-weight: 600;
+            font-size: 1.2em;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-indicator.online { background-color: var(--success-color); }
+        .status-indicator.offline { background-color: var(--danger-color); }
+        .status-indicator.unknown { background-color: var(--secondary-color); }
+        
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .btn-on { background-color: var(--success-color); color: white; }
+        .btn-off { background-color: var(--danger-color); color: white; }
+        .btn-refresh { background-color: var(--primary-color); color: white; width: 100%; margin-top: 15px;}
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .value-unit {
+            font-size: 0.8em;
+            color: var(--secondary-color);
+            margin-left: 4px;
+        }
+        .info-text {
+            font-size: 0.9em;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Dashboard Irrigatore Smart</h1>
+            <div class="data-point">
+                <span>Stato Connessione Broker:</span>
+                <span id="mqtt-status">Inizializzazione...</span>
+            </div>
+        </header>
+
+        <div class="grid-container">
+            <div class="card">
+                <h3>Stato Dispositivo</h3>
+                <div class="data-point">
+                    <span>Stato ESP32:</span>
+                    <span id="device-status"><span class="status-indicator unknown"></span>Sconosciuto</span>
+                </div>
+                <div class="data-point">
+                    <span>Ultimo Aggiornamento Sensori:</span>
+                    <span id="last-refresh" class="info-text">N/D</span>
+                </div>
+                <button class="btn-refresh" onclick="refreshData()">Aggiorna Dati Sensori Ora</button>
+            </div>
+
+            <div class="card">
+                <h3>Sensori Ambiente</h3>
+                <div class="data-point">
+                    <span>🌡️ Temperatura Aria:</span>
+                    <span id="temp-aria">--<span class="value-unit">°C</span></span>
+                </div>
+                <div class="data-point">
+                    <span>💧 Umidità Aria:</span>
+                    <span id="hum-aria">--<span class="value-unit">%</span></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Umidità Terreno</h3>
+                <div class="data-point">
+                    <span>🌱 Sensore 1:</span>
+                    <span id="soil-1">--<span class="value-unit">%</span></span>
+                </div>
+                <div class="data-point">
+                    <span>🌱 Sensore 2:</span>
+                    <span id="soil-2">--<span class="value-unit">%</span></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Pompa 1</h3>
+                <div class="data-point">
+                    <span>Stato:</span>
+                    <span id="pump1-state"><span class="status-indicator unknown"></span>Sconosciuto</span>
+                </div>
+                <div class="button-group">
+                    <button class="btn-on" onclick="controlPump(1, 'ON')">ON</button>
+                    <button class="btn-off" onclick="controlPump(1, 'OFF')">OFF</button>
+                </div>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                <div class="data-point">
+                    <span>Ultima Attivazione:</span>
+                    <span id="pump1-last-activation" class="info-text">N/D</span>
+                </div>
+                <div class="data-point">
+                    <span>Durata Ultima Attivazione:</span>
+                    <span id="pump1-last-duration" class="info-text">N/D</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Pompa 2</h3>
+                <div class="data-point">
+                    <span>Stato:</span>
+                    <span id="pump2-state"><span class="status-indicator unknown"></span>Sconosciuto</span>
+                </div>
+                <div class="button-group">
+                    <button class="btn-on" onclick="controlPump(2, 'ON')">ON</button>
+                    <button class="btn-off" onclick="controlPump(2, 'OFF')">OFF</button>
+                </div>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                <div class="data-point">
+                    <span>Ultima Attivazione:</span>
+                    <span id="pump2-last-activation" class="info-text">N/D</span>
+                </div>
+                <div class="data-point">
+                    <span>Durata Ultima Attivazione:</span>
+                    <span id="pump2-last-duration" class="info-text">N/D</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===================================================================
+        // ==                      CONFIGURAZIONE MQTT                      ==
+        // ===================================================================
+        const config = {
+            broker_ip: "192.168.1.103",   // <-- INSERISCI L'INDIRIZZO IP DEL TUO BROKER MQTT
+            broker_port: 9001,           // <-- INSERISCI LA PORTA WEBSOCKETS (di solito 9001)
+            client_id: "dashboard_irrigatore_" + new Date().getTime()
+        };
+
+        const topics = {
+            // Topic da Sottoscrivere (per ricevere dati)
+            deviceStatus: "irrig-2p/status",
+            tempAria: "irrig-2p/sensor/temperatura_aria/state",
+            humAria: "irrig-2p/sensor/umidita_aria/state",
+            soil1: "irrig-2p/sensor/umidita_terreno_1/state",
+            soil2: "irrig-2p/sensor/umidita_terreno_2/state",
+            lastRefresh: "irrig-2p/sensor/last_refresh/state",
+            pump1State: "irrig-2p/switch/pompa_1/state",
+            pump2State: "irrig-2p/switch/pompa_2/state",
+            pump1LastActivation: "irrig-2p/switch/pompa_1/last_activation/state",
+            pump2LastActivation: "irrig-2p/switch/pompa_2/last_activation/state",
+            pump1LastDuration: "irrig-2p/switch/pompa_1/last_duration/state",
+            pump2LastDuration: "irrig-2p/switch/pompa_2/last_duration/state",
+
+            // Topic su cui Pubblicare (per inviare comandi)
+            pump1Command: "irrig-2p/switch/pompa_1/command",
+            pump2Command: "irrig-2p/switch/pompa_2/command",
+            refreshCommand: "irrig-1p/button/updsensordata/command"
+        };
+        // ===================================================================
+        
+        const client = new Paho.MQTT.Client(config.broker_ip, config.broker_port, config.client_id);
+
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        function connectClient() {
+            console.log("Tentativo di connessione al broker MQTT...");
+            document.getElementById("mqtt-status").textContent = "In connessione...";
+            
+            client.connect({
+                onSuccess: onConnect,
+                onFailure: onFailure,
+                useSSL: false,
+                timeout: 5
+            });
+        }
+        
+        function onConnect() {
+            console.log("Connesso al broker MQTT!");
+            document.getElementById("mqtt-status").textContent = "Connesso";
+            
+            // Sottoscrivi a tutti i topic necessari per ricevere dati
+            for (const key in topics) {
+                // <-- MODIFICA CORRETTA: key.includes('Last') si assicura di sottoscrivere anche i nuovi topic
+                if (key.endsWith('State') || key.endsWith('Status') || key.startsWith('temp') || key.startsWith('hum') || key.startsWith('soil') || key.includes('Last') || key.startsWith('last')) {
+                    console.log("Sottoscrizione al topic:", topics[key]);
+                    client.subscribe(topics[key]);
+                }
+            }
+        }
+
+        function onFailure(response) {
+            console.error("Connessione fallita: " + response.errorMessage);
+            document.getElementById("mqtt-status").textContent = "Fallito. Riprovo tra 5 sec...";
+            setTimeout(connectClient, 5000);
+        }
+
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                console.log("Connessione persa: " + responseObject.errorMessage);
+                document.getElementById("mqtt-status").textContent = "Disconnesso. Riprovo tra 5 sec...";
+                setTimeout(connectClient, 5000);
+            }
+        }
+
+        function onMessageArrived(message) {
+            const topic = message.destinationName;
+            const payload = message.payloadString;
+            
+            console.log(`Messaggio ricevuto su ${topic}: ${payload}`);
+
+            switch (topic) {
+                case topics.deviceStatus:
+                    const statusElem = document.getElementById("device-status");
+                    if (payload.toLowerCase() === 'online') {
+                        statusElem.innerHTML = `<span class="status-indicator online"></span>Online`;
+                    } else {
+                        statusElem.innerHTML = `<span class="status-indicator offline"></span>Offline`;
+                    }
+                    break;
+                case topics.lastRefresh:
+                    document.getElementById("last-refresh").textContent = payload;
+                    break;
+                case topics.tempAria:
+                    document.getElementById("temp-aria").innerHTML = `${parseFloat(payload).toFixed(1)}<span class="value-unit">°C</span>`;
+                    break;
+                case topics.humAria:
+                    document.getElementById("hum-aria").innerHTML = `${parseFloat(payload).toFixed(1)}<span class="value-unit">%</span>`;
+                    break;
+                case topics.soil1:
+                    document.getElementById("soil-1").innerHTML = `${parseFloat(payload).toFixed(1)}<span class="value-unit">%</span>`;
+                    break;
+                case topics.soil2:
+                    document.getElementById("soil-2").innerHTML = `${parseFloat(payload).toFixed(1)}<span class="value-unit">%</span>`;
+                    break;
+                case topics.pump1State:
+                    const pump1StateElem = document.getElementById("pump1-state");
+                    if(payload === 'ON') {
+                        pump1StateElem.innerHTML = `<span class="status-indicator online"></span>ATTIVA`;
+                    } else {
+                        pump1StateElem.innerHTML = `<span class="status-indicator offline"></span>SPENTA`;
+                    }
+                    break;
+                case topics.pump2State:
+                     const pump2StateElem = document.getElementById("pump2-state");
+                    if(payload === 'ON') {
+                        pump2StateElem.innerHTML = `<span class="status-indicator online"></span>ATTIVA`;
+                    } else {
+                        pump2StateElem.innerHTML = `<span class="status-indicator offline"></span>SPENTA`;
+                    }
+                    break;
+                
+                // --- SEZIONE CORRETTA PER DATA E DURATA ---
+                case topics.pump1LastActivation: {
+                    const timestamp_secondi = parseInt(payload, 10);
+                    // Controlla che il timestamp sia un numero valido
+                    if (!isNaN(timestamp_secondi) && timestamp_secondi > 0) {
+                        const data = new Date(timestamp_secondi * 1000); // JS usa millisecondi
+                        document.getElementById("pump1-last-activation").textContent = data.toLocaleString('it-IT');
+                    } else {
+                        document.getElementById("pump1-last-activation").textContent = "N/D";
+                    }
+                    break;
+                }
+                case topics.pump2LastActivation: {
+                    const timestamp_secondi = parseInt(payload, 10);
+                    if (!isNaN(timestamp_secondi) && timestamp_secondi > 0) {
+                        const data = new Date(timestamp_secondi * 1000);
+                        document.getElementById("pump2-last-activation").textContent = data.toLocaleString('it-IT');
+                    } else {
+                         document.getElementById("pump2-last-activation").textContent = "N/D";
+                    }
+                    break;
+                }
+                case topics.pump1LastDuration:
+                    // Il payload arriva già formattato dall'ESP32 come "X min Y sec"
+                    document.getElementById("pump1-last-duration").textContent = payload;
+                    break;
+                case topics.pump2LastDuration:
+                    // Il payload arriva già formattato dall'ESP32 come "X min Y sec"
+                    document.getElementById("pump2-last-duration").textContent = payload;
+                    break;
+            }
+        }
+
+        function controlPump(pumpNumber, command) {
+            if (!client.isConnected()) {
+                alert("Errore: Non sei connesso al broker MQTT. Impossibile inviare il comando.");
+                return;
+            }
+            const topic = (pumpNumber === 1) ? topics.pump1Command : topics.pump2Command;
+            const message = new Paho.MQTT.Message(command);
+            message.destinationName = topic;
+            client.send(message);
+        }
+
+        function refreshData() {
+            if (!client.isConnected()) {
+                alert("Errore: Non sei connesso al broker MQTT. Impossibile inviare il comando.");
+                return;
+            }
+            const message = new Paho.MQTT.Message("refresh"); 
+            message.destinationName = topics.refreshCommand;
+            client.send(message);
+        }
+
+        // Avvia il primo tentativo di connessione
+        connectClient();
+    </script>
+</body>
+</html>
