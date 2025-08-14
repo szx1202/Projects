@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controllo Irrigatore on demand (3 Pompe)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #1c1e21; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { max-width: 600px; width: 100%; }
+        h1, h2 { color: #0056b3; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+        .card { background-color: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .data-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 1.1em; border-bottom: 1px solid #eee; }
+        .data-item:last-child { border-bottom: none; }
+        .data-label { font-weight: bold; }
+        .data-value { font-family: "Courier New", Courier, monospace; background-color: #e9ecef; padding: 5px 10px; border-radius: 5px; color: #000; }
+        .button { display: block; width: 100%; padding: 12px; font-size: 1.1em; font-weight: bold; color: #fff; border: none; border-radius: 5px; cursor: pointer; margin-top: 15px; transition: background-color 0.3s, opacity 0.3s; }
+        .button:disabled { cursor: not-allowed; opacity: 0.6; }
+        .btn-on { background-color: #dc3545; }
+        .btn-on:hover:not(:disabled) { background-color: #c82333; }
+        .btn-off { background-color: #28a745; }
+        .btn-off:hover:not(:disabled) { background-color: #218838; }
+        .btn-action { background-color: #007bff; }
+        .btn-action:hover:not(:disabled) { background-color: #0069d9; }
+        #connection-status { text-align: center; padding: 10px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; }
+        .status-connected { background-color: #d4edda; color: #155724; }
+        .status-disconnected { background-color: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard Irrigatore On Demand</h1>
+        <div id="connection-status">Connessione in corso...</div>
+
+        <div class="card">
+            <h2><span role="img" aria-label="thermometer">🌡️</span> Dati Ambientali</h2>
+            <div class="data-item">
+                <span class="data-label">Temperatura Aria:</span>
+                <span id="temp-aria" class="data-value">--.- °C</span>
+            </div>
+            <div class="data-item">
+                <span class="data-label">Umidità Aria:</span>
+                <span id="umidita-aria" class="data-value">--.- %</span>
+            </div>
+        </div>
+
+        <div id="pumps-container"></div>
+
+        <div class="card">
+            <h2><span role="img" aria-label="refresh">🔄</span> Azioni</h2>
+            <button id="btn-refresh" class="button btn-action" disabled>Aggiorna Tutti i Dati</button>
+        </div>
+    </div>
+
+<script>
+    // --- CONFIGURAZIONE ---
+    const mqttBrokerHost = "192.168.1.103";
+    const mqttBrokerPort = 9001; // Porta WebSocket del broker MQTT
+    const topicPrefix = "irrig-3p"; // DEVE CORRISPONDERE A QUELLO SULL'ESP32
+    const numPumps = 3;
+
+    // --- ELEMENTI GLOBALI ---
+    const elements = {
+        connectionStatus: document.getElementById('connection-status'),
+        tempAria: document.getElementById('temp-aria'),
+        umiditaAria: document.getElementById('umidita-aria'),
+        pumpsContainer: document.getElementById('pumps-container'),
+        btnRefresh: document.getElementById('btn-refresh')
+    };
+    
+    // --- STRUTTURA DATI PER LE POMPE ---
+    let pumps = [];
+
+    // --- TOPIC GLOBALI ---
+    const globalTopics = {
+        tempAria: `${topicPrefix}/sensor/air_temperature/state`,
+        umiditaAria: `${topicPrefix}/sensor/air_humidity/state`,
+        cmdDataRequest: `${topicPrefix}/button/updsensordata/command`
+    };
+
+    // =======================================================================
+    // == FUNZIONE DI INIZIALIZZAZIONE UI - CORRETTA PER EVITARE IL BUG
+    // =======================================================================
+    function initializePumpControls() {
+        // Step 1: Crea tutta la stringa HTML in una volta sola
+        let allPumpsHTML = '';
+        for (let i = 1; i <= numPumps; i++) {
+            allPumpsHTML += `
+                <div class="card" id="card-pompa-${i}">
+                    <h2><span role="img" aria-label="water-drop">💧</span> Pompa ${i}</h2>
+                    <div class="data-item">
+                        <span class="data-label">Umidità Terreno:</span>
+                        <span id="umidita-terreno-${i}" class="data-value">--.- %</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">Stato Pompa:</span>
+                        <span id="stato-pompa-${i}" class="data-value">Sconosciuto</span>
+                    </div>
+                    <button id="btn-pompa-${i}" class="button" disabled>Attendi stato...</button>
+                </div>
+            `;
+        }
+
+        // Step 2: Inserisci l'HTML completo nella pagina in un colpo solo
+        elements.pumpsContainer.innerHTML = allPumpsHTML;
+
+        // Step 3: Ora che gli elementi esistono e sono stabili, collega gli eventi e salvali
+        for (let i = 1; i <= numPumps; i++) {
+            const pumpData = {
+                index: i,
+                topics: {
+                    umiditaTerreno: `${topicPrefix}/sensor/soil_humidity_${i}/state`,
+                    statoPompa: `${topicPrefix}/switch/pompa_${i}/state`,
+                    cmdPompa: `${topicPrefix}/switch/pompa_${i}/command`
+                },
+                elements: {
+                    umiditaTerreno: document.getElementById(`umidita-terreno-${i}`),
+                    statoPompa: document.getElementById(`stato-pompa-${i}`),
+                    btnPompa: document.getElementById(`btn-pompa-${i}`)
+                }
+            };
+            // Aggiungi l'oggetto alla nostra struttura dati
+            pumps.push(pumpData);
+
+            // Aggiungi l'evento al pulsante corrispondente
+            pumpData.elements.btnPompa.addEventListener('click', () => togglePump(pumpData));
+        }
+    }
+    
+    // --- CONNESSIONE MQTT ---
+    const clientId = "mqtt_dashboard_" + Math.random().toString(16).substr(2, 8);
+    const client = new Paho.MQTT.Client(mqttBrokerHost, mqttBrokerPort, clientId);
+
+    client.onConnectionLost = onConnectionLost;
+    client.onMessageArrived = onMessageArrived;
+
+    function connectMQTT() {
+        console.log("Tentativo di connessione al broker MQTT...");
+        client.connect({
+            onSuccess: onConnect,
+            onFailure: onFailure,
+            cleanSession: true
+        });
+    }
+
+    function onConnect() {
+        console.log("SUCCESSO: Connesso al broker MQTT!");
+        updateConnectionStatus(true);
+        
+        client.subscribe(globalTopics.tempAria);
+        client.subscribe(globalTopics.umiditaAria);
+        
+        pumps.forEach(pump => {
+            client.subscribe(pump.topics.statoPompa);
+            client.subscribe(pump.topics.umiditaTerreno);
+            console.log(`Sottoscritto ai topic per la pompa ${pump.index}`);
+        });
+
+        elements.btnRefresh.disabled = false;
+    }
+
+    function onFailure(response) {
+        console.error("CONNESSIONE FALLITA:", response.errorMessage);
+        updateConnectionStatus(false, "Connessione fallita. Riprovo tra 5 secondi...");
+        setTimeout(connectMQTT, 5000);
+    }
+    
+    function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+            console.error("CONNESSIONE PERSA:", responseObject.errorMessage);
+            updateConnectionStatus(false, "Connessione persa. Riprovo tra 5 secondi...");
+            elements.btnRefresh.disabled = true;
+            pumps.forEach(pump => {
+                pump.elements.btnPompa.disabled = true;
+            });
+            setTimeout(connectMQTT, 5000);
+        }
+    }
+
+    function onMessageArrived(message) {
+        const topic = message.destinationName;
+        const payload = message.payloadString;
+
+        if (topic === globalTopics.tempAria) {
+            elements.tempAria.textContent = `${parseFloat(payload).toFixed(1)} °C`;
+            return;
+        }
+        if (topic === globalTopics.umiditaAria) {
+            elements.umiditaAria.textContent = `${parseFloat(payload).toFixed(1)} %`;
+            return;
+        }
+
+        pumps.forEach(pump => {
+            if (topic === pump.topics.statoPompa) {
+                updatePumpUI(pump, payload.toUpperCase());
+            } else if (topic === pump.topics.umiditaTerreno) {
+                pump.elements.umiditaTerreno.textContent = `${parseFloat(payload).toFixed(1)} %`;
+            }
+        });
+    }
+
+    function updatePumpUI(pump, state) {
+        pump.elements.btnPompa.disabled = false;
+        if (state === "ON") {
+            pump.elements.statoPompa.textContent = "Accesa";
+            pump.elements.btnPompa.textContent = `Spegni Pompa ${pump.index}`;
+            pump.elements.btnPompa.className = "button btn-on";
+        } else {
+            pump.elements.statoPompa.textContent = "Spenta";
+            pump.elements.btnPompa.textContent = `Accendi Pompa ${pump.index}`;
+            pump.elements.btnPompa.className = "button btn-off";
+        }
+    }
+
+    function togglePump(pump) {
+        if (!client.isConnected()) return;
+        
+        const currentState = pump.elements.statoPompa.textContent;
+        const command = (currentState === "Accesa") ? "OFF" : "ON";
+        
+        const message = new Paho.MQTT.Message(command);
+        message.destinationName = pump.topics.cmdPompa;
+        client.send(message);
+        
+        pump.elements.btnPompa.disabled = true;
+        pump.elements.btnPompa.textContent = "Invio in corso...";
+    }
+
+    function requestDataUpdate() {
+        if (!client.isConnected()) return;
+        
+        const message = new Paho.MQTT.Message("PRESS");
+        message.destinationName = globalTopics.cmdDataRequest;
+        client.send(message);
+        console.log("Richiesta di aggiornamento dati inviata.");
+    }
+    
+    function updateConnectionStatus(connected, text) {
+        if(connected){
+            elements.connectionStatus.textContent = "Connesso al Broker MQTT";
+            elements.connectionStatus.className = "status-connected";
+        } else {
+            elements.connectionStatus.textContent = text || "Disconnesso";
+            elements.connectionStatus.className = "status-disconnected";
+        }
+    }
+    
+    // --- AVVIO DELLO SCRIPT ---
+    initializePumpControls();
+    elements.btnRefresh.addEventListener('click', requestDataUpdate);
+    connectMQTT();
+
+</script>
+</body>
+</html>
