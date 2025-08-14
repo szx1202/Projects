@@ -1,7 +1,7 @@
 MIME-Version: 1.0
 Content-Type: multipart/related; boundary="----=_NextPart_01DBD3E7.1AB55880"
 
-Questo documento � una pagina Web in file unico, nota anche come archivio Web. La visualizzazione di questo messaggio indica che il browser o l'editor in uso non supporta gli archivi Web. Scaricare un browser che supporti gli archivi Web.
+Questo documento è una pagina Web in file unico, nota anche come archivio Web. La visualizzazione di questo messaggio indica che il browser o l'editor in uso non supporta gli archivi Web. Scaricare un browser che supporti gli archivi Web.
 
 ------=_NextPart_01DBD3E7.1AB55880
 Content-Location: file:///C:/EB26A0D4/IrrigatorProject.htm
@@ -56,7 +56,7 @@ PM</p>
  <p style=3D'margin:0in;font-family:Calibri;font-size:11.0pt' lang=3Dit>&nb=
 sp;</p>
  <p style=3D'margin:0in;font-size:18.0pt'><span style=3D'font-weight:bold;
- font-family:"Segoe UI Emoji"' lang=3Den-US>✅ </span><span style=3D'font-=
+ font-family:"Segoe UI Emoji"' lang=3Den-US>âœ… </span><span style=3D'font-=
 weight:
  bold;font-family:Calibri' lang=3Dit>Obiettivi del progetto</span></p>
  <ul type=3Ddisc style=3D'direction:ltr;unicode-bidi:embed;margin-top:0in;
@@ -73,8 +73,8 @@ i-Fi.</span></li>
 ia
       (ricaricabile, a basso consumo).</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
-      style=3D'font-family:Calibri;font-size:11.0pt'>Monitoraggio dell’um=
-idità
+      style=3D'font-family:Calibri;font-size:11.0pt'>Monitoraggio dellâ€™um=
+iditÃ 
       del terreno.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
       style=3D'font-family:Calibri;font-size:11.0pt'>Monitoraggio Temperatu=
@@ -108,7 +108,7 @@ an></li>
 ht:
       bold'><span style=3D'font-weight:bold;font-family:Calibri;font-size:1=
 1.0pt'>Pompa
-      peristaltica o mini pompa sommersa (5V–6V)<br>
+      peristaltica o mini pompa sommersa (5Vâ€“6V)<br>
             </span><span style=3D'font-weight:normal;font-family:Calibri;
       font-size:11.0pt'>Per irrigare l'acqua nel vaso.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle;font-weig=
@@ -122,9 +122,9 @@ ht:
 ht:
       bold'><span style=3D'font-weight:bold;font-family:Calibri;font-size:1=
 1.0pt'>Sensore
-      di umidità del suolo capacitivo<br>
+      di umiditÃ  del suolo capacitivo<br>
             </span><span style=3D'font-weight:normal;font-family:Calibri;
-      font-size:11.0pt'>Più resistente rispetto a quelli resistivi.</span>=
+      font-size:11.0pt'>PiÃ¹ resistente rispetto a quelli resistivi.</span>=
 </li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle;font-weig=
 ht:
@@ -157,12 +157,12 @@ ht:
 1.0pt'>Contenitore
       per acqua + tubicino<br>
             </span><span style=3D'font-weight:normal;font-family:Calibri;
-      font-size:11.0pt'>Sorgente per l’irrigazione.</span></li>
+      font-size:11.0pt'>Sorgente per lâ€™irrigazione.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle;font-weig=
 ht:
       bold'><span style=3D'font-weight:bold;font-family:Calibri;font-size:1=
 1.0pt'>Modulo
-      relè (alternativa al MOSFET)<br>
+      relÃ¨ (alternativa al MOSFET)<br>
             </span><span style=3D'font-weight:normal;font-family:Calibri;
       font-size:11.0pt'>Solo se preferisci usare componenti pronti.</span><=
 /li>
@@ -170,7 +170,7 @@ ht:
 ht:
       bold'><span style=3D'font-weight:bold;font-family:Calibri;font-size:1=
 1.0pt'>Modulo
-      Wi-Fi (già incluso nell’ESP32)<br>
+      Wi-Fi (giÃ  incluso nellâ€™ESP32)<br>
             </span><span style=3D'font-weight:normal;font-family:Calibri;
       font-size:11.0pt'>Per controllo remoto, ad esempio via HTTP o MQTT.</=
 span></li>
@@ -192,13 +192,13 @@ ibri;
 family:
       Calibri;font-size:11.0pt'><br>
             </span><span style=3D'font-weight:normal;font-family:Calibri;
-      font-size:11.0pt'>Permette l’alimentazione sicura e ricaricabile del
+      font-size:11.0pt'>Permette lâ€™alimentazione sicura e ricaricabile del
       sistema.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle;font-weig=
 ht:
       bold' lang=3Dit><span style=3D'font-weight:bold;font-family:Calibri;
       font-size:11.0pt'>Pannello solare 3W 5V Micro<span
-      style=3D'mso-spacerun:yes'>  </span>Polysilicon sistema </span></li>
+      style=3D'mso-spacerun:yes'>Â  </span>Polysilicon sistema </span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle;font-weig=
 ht:
       bold' lang=3Dit><span style=3D'font-weight:bold;font-family:Calibri;
@@ -218,20 +218,20 @@ n></li>
 .0pt'
  lang=3Dit>&nbsp;</p>
  <p style=3D'margin:0in;font-size:18.0pt'><span style=3D'font-weight:bold;
- font-family:"Segoe UI Emoji"' lang=3Den-US>⚙️ </span><span style=3D'fo=
+ font-family:"Segoe UI Emoji"' lang=3Den-US>âš™ï¸ </span><span style=3D'fo=
 nt-weight:
- bold;font-family:Calibri' lang=3Dit>Funzionalità base</span></p>
+ bold;font-family:Calibri' lang=3Dit>FunzionalitÃ  base</span></p>
  <ul type=3Ddisc style=3D'direction:ltr;unicode-bidi:embed;margin-top:0in;
   margin-bottom:0in'>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
-      style=3D'font-family:Calibri;font-size:11.0pt'>L’ESP32 si connette =
+      style=3D'font-family:Calibri;font-size:11.0pt'>Lâ€™ESP32 si connette =
 al
       Wi-Fi.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
       style=3D'font-family:Calibri;font-size:11.0pt'>Riceve comandi da
-      un’interfaccia remota (Blynk e Web Page)</span></li>
+      unâ€™interfaccia remota (Blynk e Web Page)</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
-      style=3D'font-family:Calibri;font-size:11.0pt' lang=3Den-US>Se è tro=
+      style=3D'font-family:Calibri;font-size:11.0pt' lang=3Den-US>Se Ã¨ tro=
 ppo secco
       </span><span style=3D'font-weight:bold;font-family:Calibri;font-size:=
 11.0pt'
@@ -240,9 +240,9 @@ ppo secco
       lang=3Den-US> se riceve un comando manuale, attiva la pompa.</span></=
 li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
-      style=3D'font-family:Calibri;font-size:11.0pt'>L’alimentazione a ba=
+      style=3D'font-family:Calibri;font-size:11.0pt'>Lâ€™alimentazione a ba=
 tteria
-      può essere monitorata con un partitore resistivo per leggere la tens=
+      puÃ² essere monitorata con un partitore resistivo per leggere la tens=
 ione.</span></li>
  </ul>
  <p style=3D'margin:0in;font-family:Calibri;font-size:11.0pt' lang=3Dit>&nb=
@@ -296,7 +296,7 @@ old;
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
       style=3D'font-family:Calibri;font-size:11.0pt'>Monitoraggio del livel=
 lo
-      dell’acqua nel serbatoio.</span></li>
+      dellâ€™acqua nel serbatoio.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
       style=3D'font-family:Calibri;font-size:11.0pt'>Notifiche via Telegram=
  o
@@ -310,7 +310,7 @@ lo
  <ul type=3Ddisc style=3D'direction:ltr;unicode-bidi:embed;margin-top:0in;
   margin-bottom:0in'>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
-      style=3D'font-family:Calibri;font-size:11.0pt' lang=3Den-US>L’ESP32=
+      style=3D'font-family:Calibri;font-size:11.0pt' lang=3Den-US>Lâ€™ESP32=
  deve
       essere messo in </span><span style=3D'font-weight:bold;font-family:Ca=
 libri;
@@ -321,11 +321,11 @@ teria.</span></li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
       style=3D'font-family:Calibri;font-size:11.0pt'>Attivazione tramite ti=
 mer o
-      comando esterno (es. via Wi-Fi se in modalità light sleep).</span></=
+      comando esterno (es. via Wi-Fi se in modalitÃ  light sleep).</span></=
 li>
   <li style=3D'margin-top:0;margin-bottom:0;vertical-align:middle'><span
-      style=3D'font-family:Calibri;font-size:11.0pt'>Il sensore di umidità=
- può
+      style=3D'font-family:Calibri;font-size:11.0pt'>Il sensore di umiditÃ =
+ puÃ²
       essere alimentato solo quando serve (tramite pin GPIO).</span></li>
  </ul>
  <p style=3D'margin:0in;margin-left:.375in;font-family:Calibri;font-size:11=
