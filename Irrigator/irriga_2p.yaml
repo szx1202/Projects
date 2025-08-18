@@ -1,6 +1,26 @@
+#==============================================================================================
+# Irriga_2p.yaml (Irriga_2p.ino)  - (Versione con valori on demand)
+# Author: Setzi
+# Date: 01-08-2025
+# Description: Configurazione ESPHome per un sistema di irrigazione
+#              con due pompe e sensori di umidità del suolo e
+#              temperatura/umidità dell'aria.
+#              Include funzionalità MQTT per comandi esterni.
+#              Utilizza un DHT22 per la temperatura e umidità dell'aria,
+#              e due sensori ADC per l'umidità del suolo.
+#              Permette l'aggiornamento manuale dei dati sensoriali tramite un pulsante.
+#              Configurazione per ESP32.
+#              Utilizza un broker MQTT per la comunicazione.
+#              Include la gestione della pompa per l'irrigazione.
+#              Configurazione di rete con IP statico.
+#              Include la gestione della connessione WiFi e API per il controllo remoto.  
+#              Utilizza la crittografia per la sicurezza della comunicazione.
+#              Include la gestione della registrazione dei log.
+#================================================================================================
+
 esphome:
-  name: irrigatore-2p
-  friendly_name: Irrigatore 2 Pompe
+  name: irrig-2p
+  friendly_name: Irrigaatore 2 Pompe
 
 esp32:
   board: esp32dev
@@ -48,7 +68,7 @@ mqtt:
   id: mqtt_client
   broker: 192.168.1.103
   port: 1883
-  client_id: irrigatore-2p-esphome
+  client_id: irrig-2p-esphome
   birth_message:
     topic: "irrig-2p/status"
     payload: "online"
@@ -119,8 +139,8 @@ sensor:
     update_interval: 10s
     filters:
       - calibrate_linear:
-          - 3.0 -> 0.0
-          - 1.25 -> 100.0
+          - 2.8 -> 0.0
+          - 1.15 -> 100.0
       - clamp:
           min_value: 0.0
           max_value: 100.0
@@ -147,8 +167,8 @@ sensor:
     update_interval: 10s
     filters:
       - calibrate_linear:
-          - 3.0 -> 0.0
-          - 1.25 -> 100.0
+          - 3.1 -> 0.0
+          - 2.27 -> 100.0
       - clamp:
           min_value: 0.0
           max_value: 100.0
