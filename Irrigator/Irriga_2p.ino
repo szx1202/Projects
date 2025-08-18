@@ -1,8 +1,22 @@
-// =================================================================
-// ==         CODICE ARDUINO PER IRRIGATORE 2P                   ==
-// ==                 Aggiunta comando refresh manuale           ==
-// ==       Ora di Attivazione Pompe e Durata Attivazione        
-// =================================================================
+//==============================================================================================
+// Irriga_2p.ino (Irriga_2p.yaml)  - (Versione con valori on demand)
+// Author: Setzi
+// Date: 01-08-2025
+// Description: Configurazione ESPHome per un sistema di irrigazione
+//              con due pompe e sensori di umidità del suolo e
+//              temperatura/umidità dell'aria.
+//              Include funzionalità MQTT per comandi esterni.
+//              Utilizza un DHT22 per la temperatura e umidità dell'aria,
+//              e due sensori ADC per l'umidità del suolo.
+//              Permette l'aggiornamento manuale dei dati sensoriali tramite un pulsante.
+//              Configurazione per ESP32.
+//              Utilizza un broker MQTT per la comunicazione.
+//              Include la gestione della pompa per l'irrigazione.
+//              Configurazione di rete con IP statico.
+//              Include la gestione della connessione WiFi e API per il controllo remoto.  
+//              Utilizza la crittografia per la sicurezza della comunicazione.
+//              Include la gestione della registrazione dei log.
+//================================================================================================
 
 #include <WiFi.h>
 #include <PubSubClient.h>
