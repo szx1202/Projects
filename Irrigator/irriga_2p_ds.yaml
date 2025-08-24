@@ -1,0 +1,310 @@
+# --- Versione File YAML di Irriga_2p_ds.ino 
+# --- V 1.0  ---
+# --- Aggiunta Modalità Manutenzione per evitare Deep Sleep ---
+# --- Aggiunta MQTT per integrazione con Home Assistant ---
+# --- Aggiunta Pulsante per aggiornamento manuale dei sensori ---
+# --- Aggiunta Sensore di Stato Dispositivo (Online/Sleeping/Booting) ---
+# --- Aggiunta Timeout NTP con log di avviso in caso di fallimento --
+# --- Aggiunta Documentazione e Commenti ---
+
+
+substitutions:
+  device_name: "irrig_2p_ds"
+  friendly_name: "Irrigatore a 2 Pompe"
+  active_time_min: "5"
+  sleep_time_min: "55"
+
+# ==========================================================
+# ==              CONFIGURAZIONE DI BASE                  ==
+# ==========================================================
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+  on_boot:
+    priority: 600
+    then:
+      - globals.set:
+          id: awake_start_time_ms
+          value: !lambda "return millis();"
+      - text_sensor.template.publish:
+          id: device_status_sensor
+          state: "Booting..."
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# (api, ota, logger rimangono invariati)
+api:
+  encryption:
+    key: "eGmkiHfVBi3QJHwYh1ilu1Im0lLdwrGlmYjKOLBLWKw="
+ota:
+  platform: esphome
+logger:
+  baud_rate: 115200
+
+# ==========================================================
+# ==                 CONNESSIONE E RETE                   ==
+# ==========================================================
+wifi:
+  ssid: "Dart-24G"
+  password: "SoloPerLaFamiglia"
+
+mqtt:
+  broker: 192.168.1.103
+  client_id: "${device_name}-esphome"
+  discovery: true
+  will_message:
+    topic: "${device_name}/status"
+    payload: "offline"
+    retain: true
+    
+  on_connect:
+    then:
+      - text_sensor.template.publish:
+          id: device_status_sensor
+          state: "Online"
+      - wait_until:
+          condition:
+            lambda: 'return id(sntp_time).now().is_valid();'
+          timeout: 30s
+      - if:
+          condition:
+            lambda: 'return !id(sntp_time).now().is_valid();'
+          then:
+            - logger.log: "ATTENZIONE: Timeout NTP! L'ora non è stata sincronizzata."
+          else:
+            - logger.log: "Ora sincronizzata. Aggiorno tutti i sensori."
+            - component.update: last_boot_time
+            - component.update: dht_hub
+            - component.update: umidita_terreno_1
+            - component.update: umidita_terreno_2
+            - component.update: durata_totale_pompa_1
+            - component.update: durata_totale_pompa_2
+            
+  on_message:
+    - topic: ${device_name}/button/updsensordata/command
+      then:
+        - logger.log: "Richiesta di aggiornamento manuale da MQTT ricevuta."
+        - button.press: update_sensors_button
+
+# ==========================================================
+# ==             VARIABILI GLOBALI                        ==
+# ==========================================================
+globals:
+  - id: awake_start_time_ms
+    type: unsigned long
+    initial_value: '0'
+  - id: maintenance_mode_enabled
+    type: bool
+    restore_value: yes # Manteniamo questo per ricordare la modalità manutenzione
+    initial_value: 'false'
+  - id: pump1_start_time_ms
+    type: unsigned long
+    initial_value: '0'
+  - id: pump2_start_time_ms
+    type: unsigned long
+    initial_value: '0'
+  - id: pump1_total_duration_s
+    type: unsigned int
+    # --- MODIFICA: Rimossa la riga 'restore_value: yes' per azzerare al riavvio ---
+    initial_value: '0'
+  - id: pump2_total_duration_s
+    type: unsigned int
+    # --- MODIFICA: Rimossa la riga 'restore_value: yes' per azzerare al riavvio ---
+    initial_value: '0'
+
+# ==========================================================
+# ==                     DEEP SLEEP                       ==
+# ==========================================================
+deep_sleep:
+  sleep_duration: ${sleep_time_min}min
+  id: deep_sleep_component
+
+# ==========================================================
+# ==      CONTROLLORE MANUALE PER IL DEEP SLEEP           ==
+# ==========================================================
+interval:
+  - interval: 30s
+    then:
+      - if:
+          condition:
+            and:
+              - lambda: !lambda 'return !id(maintenance_mode_enabled);'
+              - lambda: !lambda 'return millis() > (${active_time_min} * 60 * 1000);'
+          then:
+            - script.execute: check_and_sleep
+
+script:
+  - id: check_and_sleep
+    mode: single
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_off: pompa_1
+              - switch.is_off: pompa_2
+          then:
+            - logger.log: "Condizioni soddisfatte. Invio stato 'Sleeping' e avvio deep sleep."
+            - text_sensor.template.publish:
+                id: device_status_sensor
+                state: "Sleeping"
+            - delay: 200ms 
+            - deep_sleep.enter: deep_sleep_component
+          else:
+            - logger.log: "Sleep posticipato: una pompa è ancora attiva."
+
+# ==========================================================
+# ==              INTERRUTTORI (POMPE)                    ==
+# ==========================================================
+switch:
+  - platform: template
+    name: "Modalità Manutenzione"
+    id: maintenance_mode
+    icon: "mdi:wrench"
+    lambda: 'return id(maintenance_mode_enabled);'
+    turn_on_action:
+      - globals.set: {id: maintenance_mode_enabled, value: 'true'}
+    turn_off_action:
+      - globals.set: {id: maintenance_mode_enabled, value: 'false'}
+  - platform: gpio
+    name: "Pompa 1"
+    id: pompa_1
+    pin: GPIO25
+    restore_mode: ALWAYS_OFF
+    mqtt_id: "${device_name}_switch_pompa_1"
+    on_turn_on:
+      then:
+        - lambda: 'id(pump1_start_time_ms) = millis();'
+    on_turn_off:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(pump1_start_time_ms) > 0;'
+            then:
+              - lambda: |-
+                  unsigned long duration = (millis() - id(pump1_start_time_ms)) / 1000;
+                  id(pump1_total_duration_s) += duration;
+                  id(pump1_start_time_ms) = 0;
+              - component.update: durata_totale_pompa_1
+  - platform: gpio
+    name: "Pompa 2"
+    id: pompa_2
+    pin: GPIO27
+    restore_mode: ALWAYS_OFF
+    mqtt_id: "${device_name}_switch_pompa_2"
+    on_turn_on:
+      then:
+        - lambda: 'id(pump2_start_time_ms) = millis();'
+    on_turn_off:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(pump2_start_time_ms) > 0;'
+            then:
+              - lambda: |-
+                  unsigned long duration = (millis() - id(pump2_start_time_ms)) / 1000;
+                  id(pump2_total_duration_s) += duration;
+                  id(pump2_start_time_ms) = 0;
+              - component.update: durata_totale_pompa_2
+
+# ==========================================================
+# ==                 SENSORI                              ==
+# ==========================================================
+sensor:
+  - platform: dht
+    id: dht_hub
+    pin: GPIO13
+    model: DHT22
+    update_interval: 60s
+    temperature:
+      name: "Temperatura Aria"
+      mqtt_id: "${device_name}_sensor_temperatura_aria"
+    humidity:
+      name: "Umidità Aria"
+      mqtt_id: "${device_name}_sensor_umidita_aria"
+  - platform: adc
+    pin: GPIO32
+    name: "Umidità Terreno 1"
+    id: umidita_terreno_1
+    update_interval: 60s
+    attenuation: 12db
+    filters:
+      - multiply: 0.000805664
+      - calibrate_linear:
+          - 1.25 -> 100.0
+          - 3.0 -> 0.0
+      - clamp: { min_value: 0, max_value: 100 }
+    mqtt_id: "${device_name}_sensor_umidita_terreno_1"
+  - platform: adc
+    pin: GPIO35
+    name: "Umidità Terreno 2"
+    id: umidita_terreno_2
+    update_interval: 60s
+    attenuation: 12db
+    filters:
+      - calibrate_linear:
+          - 1.25 -> 100.0
+          - 2.88 -> 0.0
+      - clamp: { min_value: 0, max_value: 100 }
+    mqtt_id: "${device_name}_sensor_umidita_terreno_2"
+  - platform: template
+    name: "Durata Sessione Pompa 1" # Nome modificato per chiarezza
+    id: durata_totale_pompa_1
+    lambda: 'return id(pump1_total_duration_s);'
+    update_interval: 3600s
+    unit_of_measurement: s
+    icon: "mdi:timer"
+    mqtt_id: "${device_name}_sensor_pompa_1_session_duration"
+  - platform: template
+    name: "Durata Sessione Pompa 2" # Nome modificato per chiarezza
+    id: durata_totale_pompa_2
+    lambda: 'return id(pump2_total_duration_s);'
+    update_interval: 3600s
+    unit_of_measurement: s
+    icon: "mdi:timer"
+    mqtt_id: "${device_name}_sensor_pompa_2_session_duration"
+
+# ==========================================================
+# ==                COMPONENTI AGGIUNTIVI                 ==
+# ==========================================================
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Rome"
+    servers:
+      - 192.168.1.1
+      - time.google.com
+      - pool.ntp.org
+
+text_sensor:
+  - platform: template
+    name: "Ultimo Avvio"
+    id: last_boot_time
+    lambda: |-
+      if (id(sntp_time).now().is_valid()) {
+        return id(sntp_time).now().strftime("%Y-%m-%d %H:%M:%S");
+      } else {
+        return {std::string("NTP Sync Pending...")};
+      }
+    icon: "mdi:clock-start"
+    mqtt_id: "${device_name}_sensor_last_boot"
+    
+  - platform: template
+    name: "Stato Dispositivo"
+    id: device_status_sensor
+    mqtt_id: "${device_name}_status"
+
+button:
+  - platform: template
+    name: "Aggiorna Sensori"
+    id: update_sensors_button
+    mqtt_id: "${device_name}_button_update_sensors"
+    on_press:
+      then:
+        - logger.log: "Aggiornamento manuale dei sensori richiesto..."
+        - component.update: dht_hub
+        - component.update: umidita_terreno_1
+        - component.update: umidita_terreno_2
