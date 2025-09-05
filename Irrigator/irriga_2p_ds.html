@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Irrigatore ESP32</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg-color: #ffffff;
+            --text-color: #333;
+            --primary-color: #007bff;
+            --accent-color: #28a745;
+            --off-color: #dc3545;
+            --border-color: #e0e0e0;
+            --shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 20px;
+        }
+        .connection-bar {
+            background-color: var(--card-bg-color);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+        }
+        .connection-bar input {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+        .connection-bar button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            background-color: var(--primary-color);
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .connection-bar button:hover {
+            background-color: #0056b3;
+        }
+        #connection-status {
+            font-weight: bold;
+        }
+        .status-disconnected { color: var(--off-color); }
+        .status-connected { color: var(--accent-color); }
+        .status-connecting { color: #fd7e14; }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background-color: var(--card-bg-color);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+        .card h2 {
+            margin-top: 0;
+            color: var(--primary-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            font-size: 1.2em;
+        }
+        .info-row, .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+        .info-row span:first-child {
+            font-weight: 500;
+        }
+        .info-row span:last-child {
+            font-weight: bold;
+            font-family: "Courier New", Courier, monospace;
+            background-color: #e9ecef;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .control-row button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            font-size: 1em;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+        .control-row button:hover {
+            opacity: 0.8;
+        }
+        .btn-on { background-color: var(--accent-color); }
+        .btn-off { background-color: var(--off-color); }
+        #btn-refresh {
+            width: 100%;
+            background-color: #17a2b8;
+            margin-top: 10px;
+        }
+        .state-on { color: var(--accent-color); }
+        .state-off { color: var(--off-color); }
+
+        .progress-container { margin-top: 15px; }
+        .progress-label { display: block; margin-bottom: 5px; }
+        progress {
+            width: 100%;
+            height: 20px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        progress::-webkit-progress-bar {
+            background-color: #eee;
+            border-radius: 5px;
+        }
+        progress::-webkit-progress-value {
+            background-color: #3498db;
+            border-radius: 5px;
+            transition: width 0.5s ease-in-out;
+        }
+        
+        .alert-box {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Dashboard Irrigatore ESP32</h1>
+
+        <div class="connection-bar">
+            <label for="broker-url">Broker WebSocket:</label>
+            <input type="text" id="broker-url" value="ws://192.168.1.103:9001">
+            <button id="connect-btn">Connetti</button>
+            <span>Stato: <span id="connection-status" class="status-disconnected">Disconnesso</span></span>
+        </div>
+
+        <div class="alert-box">
+            <strong>Attenzione:</strong> Il dispositivo ESP32 è attivo solo per <strong>5 minuti ogni ora</strong> per risparmiare energia. I dati e i controlli funzioneranno solo durante questa finestra di attività.
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <h2>Stato Sistema</h2>
+                <div class="info-row">
+                    <span>Stato Dispositivo:</span>
+                    <span id="device-status" class="state-off">offline</span>
+                </div>
+                <div class="info-row">
+                    <span>Ultimo Avvio:</span>
+                    <span id="last-boot">--</span>
+                </div>
+                <button id="btn-refresh" class="control-row button">Aggiorna Dati Sensori</button>
+            </div>
+
+            <div class="card">
+                <h2>Sensori Ambiente</h2>
+                <div class="info-row">
+                    <span>Temperatura Aria:</span>
+                    <span id="air-temp">-- °C</span>
+                </div>
+                <div class="info-row">
+                    <span>Umidità Aria:</span>
+                    <span id="air-humidity">-- %</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Sensori Terreno</h2>
+                <div class="progress-container">
+                    <label for="soil1-progress" class="progress-label">Umidità Terreno 1:</label>
+                    <progress id="soil1-progress" value="0" max="100"></progress>
+                    <span id="soil1-value">-- %</span>
+                </div>
+                 <div class="progress-container">
+                    <label for="soil2-progress" class="progress-label">Umidità Terreno 2:</label>
+                    <progress id="soil2-progress" value="0" max="100"></progress>
+                    <span id="soil2-value">-- %</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Controllo Pompa 1</h2>
+                <div class="info-row">
+                    <span>Stato:</span>
+                    <span id="pump1-state" class="state-off">OFF</span>
+                </div>
+                <div class="control-row">
+                    <button id="btn-pump1-on" class="btn-on">ACCENDI</button>
+                    <button id="btn-pump1-off" class="btn-off">SPEGNI</button>
+                </div>
+                <hr>
+                <div class="info-row">
+                    <span>Durata Totale Attività:</span>
+                    <span id="pump1-duration">--</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Controllo Pompa 2</h2>
+                <div class="info-row">
+                    <span>Stato:</span>
+                    <span id="pump2-state" class="state-off">OFF</span>
+                </div>
+                <div class="control-row">
+                    <button id="btn-pump2-on" class="btn-on">ACCENDI</button>
+                    <button id="btn-pump2-off" class="btn-off">SPEGNI</button>
+                </div>
+                <hr>
+                <div class="info-row">
+                    <span>Durata Totale Attività:</span>
+                    <span id="pump2-duration">--</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+<script>
+    // --- RIFERIMENTI AGLI ELEMENTI DEL DOM ---
+    const brokerUrlInput = document.getElementById('broker-url');
+    const connectBtn = document.getElementById('connect-btn');
+    const connectionStatusEl = document.getElementById('connection-status');
+    
+    // Elementi di stato
+    const deviceStatusEl = document.getElementById('device-status');
+    const lastBootEl = document.getElementById('last-boot');
+    
+    // Elementi sensori
+    const airTempEl = document.getElementById('air-temp');
+    const airHumidityEl = document.getElementById('air-humidity');
+    const soil1Progress = document.getElementById('soil1-progress');
+    const soil1Value = document.getElementById('soil1-value');
+    const soil2Progress = document.getElementById('soil2-progress');
+    const soil2Value = document.getElementById('soil2-value');
+
+    // Elementi Pompa 1
+    const pump1StateEl = document.getElementById('pump1-state');
+    const pump1DurationEl = document.getElementById('pump1-duration');
+    const btnPump1On = document.getElementById('btn-pump1-on');
+    const btnPump1Off = document.getElementById('btn-pump1-off');
+
+    // Elementi Pompa 2
+    const pump2StateEl = document.getElementById('pump2-state');
+    const pump2DurationEl = document.getElementById('pump2-duration');
+    const btnPump2On = document.getElementById('btn-pump2-on');
+    const btnPump2Off = document.getElementById('btn-pump2-off');
+    
+    // Pulsante Refresh
+    const btnRefresh = document.getElementById('btn-refresh');
+
+    // --- CONFIGURAZIONE MQTT ---
+    const MQTT_PREFIX = "irrig-2p_ds";
+    const TOPICS = {
+        STATUS: `${MQTT_PREFIX}/status`,
+        TEMP_AIR: `${MQTT_PREFIX}/sensor/temperatura_aria/state`,
+        HUM_AIR: `${MQTT_PREFIX}/sensor/umidita_aria/state`,
+        SOIL1_PERC: `${MQTT_PREFIX}/sensor/umidita_terreno_1/state`,
+        SOIL2_PERC: `${MQTT_PREFIX}/sensor/umidita_terreno_2/state`,
+        PUMP1_STATE: `${MQTT_PREFIX}/switch/pompa_1/state`,
+        PUMP1_CMD: `${MQTT_PREFIX}/switch/pompa_1/command`,
+        PUMP2_STATE: `${MQTT_PREFIX}/switch/pompa_2/state`,
+        PUMP2_CMD: `${MQTT_PREFIX}/switch/pompa_2/command`,
+        REFRESH_CMD: "irrig-1p/button/updsensordata/command", // Mantenuto per compatibilità
+        LAST_BOOT: `${MQTT_PREFIX}/sensor/last_boot/state`,
+        PUMP1_TOTAL_DURATION: `${MQTT_PREFIX}/sensor/pompa_1/total_duration/state`,
+        PUMP2_TOTAL_DURATION: `${MQTT_PREFIX}/sensor/pompa_2/total_duration/state`
+    };
+
+    let client = null;
+
+    // --- FUNZIONI ---
+    
+    function updateConnectionStatus(status, className) {
+        connectionStatusEl.textContent = status;
+        connectionStatusEl.className = className;
+    }
+    
+    function formatDuration(totalSeconds) {
+        if (isNaN(totalSeconds) || totalSeconds < 0) return "--";
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${hours}h ${minutes}m ${seconds}s`;
+    }
+
+    function connectToBroker() {
+        const brokerUrl = brokerUrlInput.value;
+        if (!brokerUrl) {
+            alert("Per favore, inserisci un URL del broker MQTT.");
+            return;
+        }
+
+        updateConnectionStatus('Connessione...', 'status-connecting');
+        const options = {
+            clientId: 'dashboard_irrigator_' + Math.random().toString(16).substr(2, 8),
+            clean: true,
+            connectTimeout: 4000
+        };
+
+        client = mqtt.connect(brokerUrl, options);
+
+        client.on('connect', () => {
+            updateConnectionStatus('Connesso', 'status-connected');
+            console.log('Connesso al broker MQTT!');
+            
+            // Sottoscrivi a tutti i topic di stato
+            client.subscribe(Object.values(TOPICS).filter(t => t.includes('/state') || t.includes('/status')), (err) => {
+                if (!err) {
+                    console.log('Sottoscrizione ai topic avvenuta con successo');
+                } else {
+                    console.error('Errore di sottoscrizione:', err);
+                }
+            });
+        });
+
+        client.on('message', (topic, payload) => {
+            const message = payload.toString();
+            console.log(`Messaggio ricevuto su [${topic}]: ${message}`);
+
+            switch (topic) {
+                case TOPICS.STATUS:
+                    deviceStatusEl.textContent = message;
+                    deviceStatusEl.className = message === 'online' ? 'state-on' : 'state-off';
+                    break;
+                case TOPICS.LAST_BOOT:
+                    lastBootEl.textContent = message;
+                    break;
+                case TOPICS.TEMP_AIR:
+                    airTempEl.textContent = `${parseFloat(message).toFixed(1)} °C`;
+                    break;
+                case TOPICS.HUM_AIR:
+                    airHumidityEl.textContent = `${parseFloat(message).toFixed(1)} %`;
+                    break;
+                case TOPICS.SOIL1_PERC:
+                    const perc1 = parseFloat(message);
+                    soil1Value.textContent = `${perc1.toFixed(1)} %`;
+                    soil1Progress.value = perc1;
+                    break;
+                case TOPICS.SOIL2_PERC:
+                    const perc2 = parseFloat(message);
+                    soil2Value.textContent = `${perc2.toFixed(1)} %`;
+                    soil2Progress.value = perc2;
+                    break;
+                case TOPICS.PUMP1_STATE:
+                    pump1StateEl.textContent = message;
+                    pump1StateEl.className = message === 'ON' ? 'state-on' : 'state-off';
+                    break;
+                case TOPICS.PUMP2_STATE:
+                    pump2StateEl.textContent = message;
+                    pump2StateEl.className = message === 'ON' ? 'state-on' : 'state-off';
+                    break;
+                case TOPICS.PUMP1_TOTAL_DURATION:
+                    pump1DurationEl.textContent = formatDuration(parseInt(message, 10));
+                    break;
+                case TOPICS.PUMP2_TOTAL_DURATION:
+                    pump2DurationEl.textContent = formatDuration(parseInt(message, 10));
+                    break;
+            }
+        });
+
+        client.on('error', (err) => {
+            console.error('Errore di connessione:', err);
+            updateConnectionStatus('Errore', 'status-disconnected');
+            client.end();
+        });
+
+        client.on('close', () => {
+            updateConnectionStatus('Disconnesso', 'status-disconnected');
+            console.log('Disconnesso dal broker MQTT.');
+        });
+    }
+    
+    function publishMessage(topic, message) {
+        if (client && client.connected) {
+            client.publish(topic, message);
+        } else {
+            alert('Non connesso al broker MQTT. Impossibile inviare il comando.');
+        }
+    }
+
+    // --- EVENT LISTENERS ---
+    connectBtn.addEventListener('click', connectToBroker);
+
+    btnPump1On.addEventListener('click', () => publishMessage(TOPICS.PUMP1_CMD, 'ON'));
+    btnPump1Off.addEventListener('click', () => publishMessage(TOPICS.PUMP1_CMD, 'OFF'));
+    
+    btnPump2On.addEventListener('click', () => publishMessage(TOPICS.PUMP2_CMD, 'ON'));
+    btnPump2Off.addEventListener('click', () => publishMessage(TOPICS.PUMP2_CMD, 'OFF'));
+
+    btnRefresh.addEventListener('click', () => publishMessage(TOPICS.REFRESH_CMD, 'REFRESH'));
+
+</script>
+</body>
+</html>
