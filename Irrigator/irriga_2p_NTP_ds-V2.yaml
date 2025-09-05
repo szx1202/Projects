@@ -1,0 +1,274 @@
+# --- Versione File YAML di Irriga_2p_NTP_ds.ino 
+# --- V 2.0 ---
+# --- Gestione timing via NTP
+# --- Temp ed Hum gestiti via DHT22
+# --- Modalità Manutenzione per evitare Deep Sleep ---
+# --- MQTT per integrazione con Home Assistant ---
+# --- Pulsante per aggiornamento manuale dei sensori ---
+# --- Sensore di Stato Dispositivo (Online/Sleeping/Booting) ---
+# --- Timeout NTP con log di avviso in caso di fallimento --
+# --- Durata Totale Pompe per azzeramento al riavvio ---
+# -----------------------------------------------------------------------------
+# --- V2.1 --- 
+#xSostituito DHT22 con Modulo DS18B20 per gestione Temperatura Ambiente ---
+#eliminato ip statico per connessione wifi causa problemi con NTP
+# -----------------------------------------------------------------------------
+
+substitutions:
+  device_name: "irrig-2p-sntp-ds" 
+  friendly_name: "Irrigatore a 2 Pompe"
+  active_time_min: "5"
+  sleep_time_min: "55"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: 600
+    then:
+      - globals.set:
+          id: awake_start_time_ms
+          value: !lambda "return millis();"
+      - text_sensor.template.publish:
+          id: device_status_sensor
+          state: "Booting..."
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+api:
+  encryption:
+    key: "eGmkiHfVBi3QJHwYh1ilu1Im0lLdwrGlmYjKOLBLWKw="
+ota:
+  platform: esphome
+logger:
+  baud_rate: 115200
+
+wifi:
+  # L'IP viene assegnato automaticamente dal router tramite DHCP
+  ssid: "LZ_24G"
+  password: "*andromedA01."
+
+one_wire:
+  - platform: gpio
+    pin: GPIO13
+    id: onewire_bus_id
+
+mqtt:
+  broker: 192.168.1.104
+  client_id: "${device_name}-esphome"
+  discovery: true
+  will_message:
+    topic: "${device_name}/status"
+    payload: "offline"
+    retain: true
+  on_connect:
+    then:
+      - text_sensor.template.publish:
+          id: device_status_sensor
+          state: "Online"
+      - wait_until:
+          condition:
+            lambda: 'return id(sntp_time).now().is_valid();'
+          timeout: 60s
+      - if:
+          condition:
+            lambda: 'return id(sntp_time).now().is_valid();'
+          then:
+            - logger.log: "Ora NTP sincronizzata. Aggiornamento sensori."
+            - component.update: last_boot_time
+            - component.update: umidita_terreno_1
+            - component.update: umidita_terreno_2
+            - component.update: temperatura_ambiente
+            - component.update: durata_totale_pompa_1
+            - component.update: durata_totale_pompa_2
+          else:
+            - logger.log: "ATTENZIONE: Timeout NTP! L'ora non è stata sincronizzata."
+            - text_sensor.template.publish:
+                id: device_status_sensor
+                state: "Errore NTP"
+
+interval:
+  - interval: 30s
+    then:
+      - if:
+          condition:
+            and:
+              - lambda: 'return !id(maintenance_mode_enabled);'
+              - lambda: 'return millis() > (${active_time_min} * 60 * 1000);'
+          then:
+            - script.execute: check_and_sleep
+
+script:
+  - id: check_and_sleep
+    mode: single
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_off: pompa_1
+              - switch.is_off: pompa_2
+          then:
+            - logger.log: "Condizioni soddisfatte. Invio stato 'Sleeping' e avvio deep sleep."
+            - text_sensor.template.publish:
+                id: device_status_sensor
+                state: "Sleeping"
+            - delay: 200ms 
+            - deep_sleep.enter: deep_sleep_component
+          else:
+            - logger.log: "Sleep posticipato: una pompa è ancora attiva."
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Rome"
+    servers:
+      - time.google.com
+      - pool.ntp.org
+
+sensor:
+  - platform: adc
+    pin: GPIO32
+    name: "Umidità Terreno 1"
+    id: umidita_terreno_1
+    update_interval: 60s
+    attenuation: 12db
+    filters:
+      - multiply: 0.000805664
+      - calibrate_linear:
+          - 1.25 -> 100.0
+          - 3.0 -> 0.0
+      - clamp: { min_value: 0, max_value: 100 }
+  - platform: adc
+    pin: GPIO35
+    name: "Umidità Terreno 2"
+    id: umidita_terreno_2
+    update_interval: 60s
+    attenuation: 12db
+    filters:
+      - calibrate_linear:
+          - 1.25 -> 100.0
+          - 2.88 -> 0.0
+      - clamp: { min_value: 0, max_value: 100 }
+
+  - platform: dallas_temp
+    one_wire_id: onewire_bus_id
+    address: 0xfb8000002ae9f328
+    name: "Temperatura Ambiente"
+    id: temperatura_ambiente 
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    update_interval: 60s
+
+  - platform: template
+    name: "Durata Sessione Pompa 1"
+    id: durata_totale_pompa_1
+    lambda: 'return id(pump1_total_duration_s);'
+    update_interval: 3600s
+    unit_of_measurement: s
+    icon: "mdi:timer"
+  - platform: template
+    name: "Durata Sessione Pompa 2"
+    id: durata_totale_pompa_2
+    lambda: 'return id(pump2_total_duration_s);'
+    update_interval: 3600s
+    unit_of_measurement: s
+    icon: "mdi:timer"
+
+globals:
+  - id: awake_start_time_ms
+    type: unsigned long
+    initial_value: '0'
+  - id: maintenance_mode_enabled
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+  - id: pump1_start_time_ms
+    type: unsigned long
+    initial_value: '0'
+  - id: pump2_start_time_ms
+    type: unsigned long
+    initial_value: '0'
+  - id: pump1_total_duration_s
+    type: unsigned int
+    initial_value: '0'
+  - id: pump2_total_duration_s
+    type: unsigned int
+    initial_value: '0'
+
+switch:
+  - platform: template
+    name: "Modalità Manutenzione"
+    id: maintenance_mode
+    icon: "mdi:wrench"
+    lambda: 'return id(maintenance_mode_enabled);'
+    turn_on_action:
+      - globals.set: {id: maintenance_mode_enabled, value: 'true'}
+    turn_off_action:
+      - globals.set: {id: maintenance_mode_enabled, value: 'false'}
+  - platform: gpio
+    name: "Pompa 1"
+    id: pompa_1
+    pin: GPIO25
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - lambda: 'id(pump1_start_time_ms) = millis();'
+    on_turn_off:
+      - if:
+          condition:
+            lambda: 'return id(pump1_start_time_ms) > 0;'
+          then:
+            - lambda: |-
+                unsigned long duration = (millis() - id(pump1_start_time_ms)) / 1000;
+                id(pump1_total_duration_s) += duration;
+                id(pump1_start_time_ms) = 0;
+            - component.update: durata_totale_pompa_1
+  - platform: gpio
+    name: "Pompa 2"
+    id: pompa_2
+    pin: GPIO27
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - lambda: 'id(pump2_start_time_ms) = millis();'
+    on_turn_off:
+      - if:
+          condition:
+            lambda: 'return id(pump2_start_time_ms) > 0;'
+          then:
+            - lambda: |-
+                unsigned long duration = (millis() - id(pump2_start_time_ms)) / 1000;
+                id(pump2_total_duration_s) += duration;
+                id(pump2_start_time_ms) = 0;
+            - component.update: durata_totale_pompa_2
+
+text_sensor:
+  - platform: template
+    name: "Ultimo Avvio"
+    id: last_boot_time
+    lambda: |-
+      if (id(sntp_time).now().is_valid()) {
+        return id(sntp_time).now().strftime("%Y-%m-%d %H:%M:%S");
+      } else {
+        return {std::string("Sincronizzazione in corso...")};
+      }
+    icon: "mdi:clock-start"
+  - platform: template
+    name: "Stato Dispositivo"
+    id: device_status_sensor
+
+button:
+  - platform: template
+    name: "Aggiorna Sensori"
+    id: update_sensors_button
+    on_press:
+      then:
+        - logger.log: "Aggiornamento manuale dei sensori richiesto..."
+        - component.update: umidita_terreno_1
+        - component.update: umidita_terreno_2
+        - component.update: temperatura_ambiente
+
+deep_sleep:
+  sleep_duration: ${sleep_time_min}min
+  id: deep_sleep_component
