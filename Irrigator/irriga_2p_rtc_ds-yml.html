@@ -1,0 +1,418 @@
+<!-- Dashboard web per il controllo e monitoraggio di un irrigatore a 2 pompe con RTC e sensori DS18B20. */
+  Utilizza MQTT per la comunicazione in tempo reale.
+  Verione da utilizzare con firmware basato su ESPHome.
+  yaml: irriga_2p_rtc_ds-V3.yaml
+  --------------------------------V3.1 -------------------------------------------------------------------
+  aggigiunta supporto WebSocket (WSS) per connessione sicura tramite Cloudflare.
+  Autore: SZ
+  Data: 2024-06-10
+-->
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Irrigatore</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --card-color: #2c2c2c;
+            --text-color: #f0f0f0;
+            --primary-color: #007bff;
+            --green-color: #28a745;
+            --red-color: #dc3545;
+            --grey-color: #6c757d;
+            --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        body {
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background-color: var(--card-color);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .card h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+        .sensor-data, .control {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+        }
+        .sensor-data .value {
+            font-weight: bold;
+            font-size: 1.2em;
+            background-color: #333;
+            padding: 5px 10px;
+            border-radius: 6px;
+        }
+        .status-badge {
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: white;
+        }
+        .status-online { background-color: var(--green-color); }
+        .status-offline { background-color: var(--red-color); }
+        .status-sleeping { background-color: var(--primary-color); }
+        .status-booting { background-color: var(--grey-color); }
+        
+        /* Stile per gli interruttori a levetta */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+        .switch input { display: none; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(26px); }
+
+        /* Barra per umidità terreno */
+        .gauge-container {
+            width: 100%;
+            background-color: #444;
+            border-radius: 8px;
+            margin-top: 5px;
+        }
+        .gauge-bar {
+            width: 0%;
+            height: 20px;
+            background-color: var(--primary-color);
+            border-radius: 8px;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            font-weight: bold;
+            transition: width 0.5s ease-in-out;
+        }
+        .action-button {
+            width: 100%;
+            padding: 12px;
+            font-size: 1em;
+            font-weight: bold;
+            color: white;
+            background-color: var(--primary-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .action-button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1><span id="device-name">Irrigatore</span> Dashboard</h1>
+    
+    <div class="grid-container">
+        <div class="card">
+            <h2>Stato Generale</h2>
+            <div class="sensor-data">
+                <span>Stato Dispositivo:</span>
+                <span id="device-status" class="status-badge status-offline">Offline</span>
+            </div>
+            <div class="sensor-data">
+                <span>Ultimo Avvio:</span>
+                <span id="last-boot-time" class="value">--:--:--</span>
+            </div>
+             <div class="sensor-data">
+                <span>Connessione MQTT:</span>
+                <span id="mqtt-status" class="status-badge status-offline">Disconnected</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Sensori Ambientali</h2>
+            <div class="sensor-data">
+                <span>Temperatura Aria:</span>
+                <span id="temp-aria" class="value">--.- °C</span>
+            </div>
+            <div class="sensor-data">
+                <span>Umidità Aria:</span>
+                <span id="umid-aria" class="value">-- %</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Umidità Terreno</h2>
+            <div class="sensor-data">
+                <span>Terreno 1:</span>
+                <span id="umid-terreno-1-val" class="value">-- %</span>
+            </div>
+            <div class="gauge-container">
+                <div id="umid-terreno-1-bar" class="gauge-bar"></div>
+            </div>
+            <br>
+            <div class="sensor-data">
+                <span>Terreno 2:</span>
+                <span id="umid-terreno-2-val" class="value">-- %</span>
+            </div>
+            <div class="gauge-container">
+                <div id="umid-terreno-2-bar" class="gauge-bar"></div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Controllo Pompe</h2>
+            <div class="control">
+                <span>Pompa 1</span>
+                <label class="switch">
+                    <input type="checkbox" id="pompa1-switch" onclick="togglePump(1)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="sensor-data">
+                <span>Durata Sessione 1:</span>
+                <span id="durata-pompa-1" class="value">-- s</span>
+            </div>
+             <hr style="border-color: #444; margin: 20px 0;">
+            <div class="control">
+                <span>Pompa 2</span>
+                <label class="switch">
+                    <input type="checkbox" id="pompa2-switch" onclick="togglePump(2)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+             <div class="sensor-data">
+                <span>Durata Sessione 2:</span>
+                <span id="durata-pompa-2" class="value">-- s</span>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Impostazioni</h2>
+            <div class="control">
+                <span>Modalità Manutenzione</span>
+                <label class="switch">
+                    <input type="checkbox" id="maintenance-switch" onclick="toggleMaintenance()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+             <hr style="border-color: #444; margin: 20px 0;">
+            <button class="action-button" onclick="updateSensors()">Aggiorna Sensori Manualmente</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- CONFIGURAZIONE ---
+const config = {
+    // Sostituisci con il sottodominio pubblico che hai configurato in Cloudflare
+    mqtt_broker: "mqtt.szweb.eu", 
+    // La porta standard per HTTPS/WSS gestita da Cloudflare è la 443
+    mqtt_port: 443,
+    device_name: "irrig_2p_rtc_ds",
+    friendly_name: "Irrigatore a 2 Pompe con RTC"
+};
+
+
+    // --- MAPPATURA TOPIC MQTT ---
+const topics = {
+    device_status: `${config.device_name}/status`,
+    temp_aria: `${config.device_name}/sensor/temperatura_aria/state`,
+    umid_aria: `${config.device_name}/sensor/umidit___aria/state`,
+    umid_terreno_1: `${config.device_name}/sensor/umidit___terreno_1/state`,
+    umid_terreno_2: `${config.device_name}/sensor/umidit___terreno_2/state`,
+    durata_pompa_1: `${config.device_name}/sensor/durata_sessione_pompa_1/state`,
+    durata_pompa_2: `${config.device_name}/sensor/durata_sessione_pompa_2/state`,
+    last_boot: `${config.device_name}/sensor/ultimo_avvio/state`,
+    pompa1_state: `${config.device_name}/switch/pompa_1/state`,
+    pompa2_state: `${config.device_name}/switch/pompa_2/state`,
+    
+    // Nomi dei topic unici per lo switch di manutenzione
+    maintenance_state: `${config.device_name}/switch/modalit___manutenzione/state`,
+    maintenance_command: `${config.device_name}/switch/modalita__manutenzione/command`, // AGGIUNTO
+
+
+    pompa1_command: `${config.device_name}/switch/pompa_1/command`,
+    pompa2_command: `${config.device_name}/switch/pompa_2/command`,
+    update_sensors_command: `${config.device_name}/button/aggiorna_sensori/command`
+};
+
+    const clientID = "dashboard_" + Math.random().toString(16).substr(2, 8);
+    const client = new Paho.MQTT.Client(config.mqtt_broker, config.mqtt_port, "/", clientID);
+    client.onConnectionLost = onConnectionLost;
+    client.onMessageArrived = onMessageArrived;
+    
+    document.getElementById('device-name').innerText = config.friendly_name;
+
+function startConnection() {
+    console.log("Tentativo di connessione al broker MQTT...");
+    client.connect({
+        timeout: 10,
+        cleanSession: true,
+        // FONDAMENTALE: Dice al client di usare una connessione sicura (WSS)
+        useSSL: true, 
+        onSuccess: onConnect,
+        onFailure: onFailure
+    });
+}
+
+function onConnect() {
+    console.log("Connesso al broker MQTT!");
+    const mqttStatus = document.getElementById('mqtt-status');
+    mqttStatus.textContent = 'Connected';
+    mqttStatus.className = 'status-badge status-online';
+
+    for (const key in topics) {
+        if (key.endsWith('_state') || key.startsWith('device_') || key.endsWith('_boot') || key.startsWith('durata_') || key.startsWith('temp_') || key.startsWith('umid_')) {
+            client.subscribe(topics[key]);
+        }
+    }
+    updateSensors();
+}
+    function onFailure(response) {
+        console.log("Connessione fallita: " + response.errorMessage);
+        const mqttStatus = document.getElementById('mqtt-status');
+        mqttStatus.textContent = 'Failed';
+        mqttStatus.className = 'status-badge status-offline';
+        setTimeout(startConnection, 5000);
+    }
+
+    function onConnectionLost(responseObject) {
+        const mqttStatus = document.getElementById('mqtt-status');
+        mqttStatus.textContent = 'Disconnected';
+        mqttStatus.className = 'status-badge status-offline';
+        if (responseObject.errorCode !== 0) {
+            console.log("Connessione persa: " + responseObject.errorMessage);
+            setTimeout(startConnection, 5000);
+        }
+    }
+    
+    startConnection();
+
+    function onMessageArrived(message) {
+        const topic = message.destinationName;
+        const payload = message.payloadString;
+
+        switch (topic) {
+            case topics.device_status:
+                const statusBadge = document.getElementById('device-status');
+                statusBadge.textContent = payload.charAt(0).toUpperCase() + payload.slice(1);
+                statusBadge.className = 'status-badge status-' + payload.toLowerCase();
+                break;
+            case topics.temp_aria:
+                document.getElementById('temp-aria').innerHTML = `${parseFloat(payload).toFixed(1)} °C`;
+                break;
+            case topics.umid_aria:
+                document.getElementById('umid-aria').innerHTML = `${parseFloat(payload).toFixed(0)} %`;
+                break;
+            case topics.umid_terreno_1:
+                updateGauge('umid-terreno-1', parseFloat(payload));
+                break;
+            case topics.umid_terreno_2:
+                updateGauge('umid-terreno-2', parseFloat(payload));
+                break;
+            case topics.durata_pompa_1:
+                document.getElementById('durata-pompa-1').innerHTML = `${payload} s`;
+                break;
+            case topics.durata_pompa_2:
+                document.getElementById('durata-pompa-2').innerHTML = `${payload} s`;
+                break;
+            case topics.last_boot:
+                document.getElementById('last-boot-time').innerHTML = payload;
+                break;
+            case topics.pompa1_state:
+                document.getElementById('pompa1-switch').checked = (payload === 'ON');
+                break;
+            case topics.pompa2_state:
+                document.getElementById('pompa2-switch').checked = (payload === 'ON');
+                break;
+            case topics.maintenance_state:
+                document.getElementById('maintenance-switch').checked = (payload === 'ON');
+                break;
+        }
+    }
+    
+    function updateGauge(id, value) {
+        const valElement = document.getElementById(`${id}-val`);
+        const barElement = document.getElementById(`${id}-bar`);
+        const percentage = Math.round(value);
+        valElement.innerHTML = `${percentage} %`;
+        barElement.style.width = `${percentage}%`;
+        barElement.innerHTML = `${percentage}%`;
+    }
+
+    function sendMessage(topic, payload) {
+        if (!client.isConnected()) {
+            console.log("Cliente non connesso. Impossibile inviare il messaggio.");
+            return;
+        }
+        const message = new Paho.MQTT.Message(payload);
+        message.destinationName = topic;
+        client.send(message);
+    }
+    
+    function togglePump(pumpId) {
+        const switchElement = document.getElementById(`pompa${pumpId}-switch`);
+        const commandTopic = topics[`pompa${pumpId}_command`];
+        const payload = switchElement.checked ? 'ON' : 'OFF';
+        sendMessage(commandTopic, payload);
+    }
+
+function toggleMaintenance() {
+    const switchElement = document.getElementById('maintenance-switch');
+    const payload = switchElement.checked ? 'ON' : 'OFF';
+    
+    // Invia il comando al topic di COMANDO, come è giusto che sia
+    sendMessage(topics.maintenance_command, payload); 
+}
+    
+    function updateSensors() {
+        sendMessage(topics.update_sensors_command, 'PRESS');
+    }
+</script>
+</body>
+</html>
